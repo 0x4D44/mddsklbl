@@ -1,4 +1,3 @@
-use anyhow::Result;
 use core::ffi::c_void;
 use std::sync::mpsc;
 use std::thread;

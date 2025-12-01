@@ -27,7 +27,8 @@ struct ScopedDC {
 impl ScopedDC {
     /// Creates a scoped DC from GetDC
     fn from_get_dc(hwnd: Option<HWND>) -> Result<Self> {
-        let hdc = unsafe { GetDC(hwnd) };
+        let hwnd_val = hwnd.unwrap_or_default();
+        let hdc = unsafe { GetDC(hwnd_val) };
         if hdc.0.is_null() {
             return Err(anyhow!("GetDC failed"));
         }
@@ -53,7 +54,7 @@ impl Drop for ScopedDC {
         unsafe {
             if self.hwnd.is_some() {
                 // Created with GetDC, use ReleaseDC
-                let _ = ReleaseDC(self.hwnd, self.hdc);
+                let _ = ReleaseDC(self.hwnd.unwrap_or_default(), self.hdc);
             } else {
                 // Created with CreateCompatibleDC, use DeleteDC
                 let _ = DeleteDC(self.hdc);
