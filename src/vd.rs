@@ -10,7 +10,7 @@ pub fn get_current_desktop_guid() -> String {
     #[cfg(windows)]
     {
         if let Ok(d) = winvd::get_current_desktop() {
-            return format!("{:?}", d);
+            return format!("{d:?}");
         }
     }
     // Fallback if API unavailable

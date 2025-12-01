@@ -69,7 +69,7 @@ fn main() {
 
         // Version/info resources
         let pkg_ver = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "1.0.0".into());
-        let file_ver = format!("{}.0", pkg_ver); // Windows expects 4-part versions
+        let file_ver = format!("{pkg_ver}.0"); // Windows expects 4-part versions
         res.set("FileDescription", "Desktop Labeler");
         res.set("ProductName", "Desktop Labeler");
         res.set("CompanyName", "0x4D44 Software");

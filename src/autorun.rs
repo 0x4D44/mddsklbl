@@ -22,7 +22,7 @@ fn run_key() -> anyhow::Result<HKEY> {
     if status.is_ok() {
         Ok(hkey)
     } else {
-        Err(anyhow::anyhow!("RegCreateKeyExW failed: {:?}", status))
+        Err(anyhow::anyhow!("RegCreateKeyExW failed: {status:?}"))
     }
 }
 
@@ -47,10 +47,7 @@ fn startup_approved_key() -> anyhow::Result<HKEY> {
     if status.is_ok() {
         Ok(hkey)
     } else {
-        Err(anyhow::anyhow!(
-            "RegCreateKeyExW StartupApproved failed: {:?}",
-            status
-        ))
+        Err(anyhow::anyhow!("RegCreateKeyExW StartupApproved failed: {status:?}"))
     }
 }
 
@@ -115,10 +112,7 @@ unsafe fn ensure_startup_marker(
     data[0] = if enabled { 0x02 } else { 0x03 };
     let status = unsafe { RegSetValueExW(hkey, value, 0, REG_BINARY, Some(&data)) };
     if status.is_err() {
-        return Err(anyhow::anyhow!(
-            "RegSetValueExW StartupApproved failed: {:?}",
-            status
-        ));
+        return Err(anyhow::anyhow!("RegSetValueExW StartupApproved failed: {status:?}"));
     }
     Ok(())
 }
@@ -180,7 +174,7 @@ pub fn set_run_at_login(enable: bool) -> anyhow::Result<()> {
                     Some(&data),
                 );
                 if status.is_err() {
-                    return Err(anyhow::anyhow!("RegSetValueExW failed: {:?}", status));
+                    return Err(anyhow::anyhow!("RegSetValueExW failed: {status:?}"));
                 }
                 let _ = RegDeleteValueW(h_run, windows::core::w!("DesktopNameManager"));
                 ensure_startup_marker(h_start, windows::core::w!("DesktopLabeler"), true)?;

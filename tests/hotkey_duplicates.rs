@@ -1,17 +1,5 @@
 use mddskmgr::config::{Hotkeys, KeyChord};
-
-fn dup(a: &KeyChord, b: &KeyChord) -> bool {
-    a.ctrl == b.ctrl && a.alt == b.alt && a.shift == b.shift && a.key.eq_ignore_ascii_case(&b.key)
-}
-
-fn has_duplicates(hk: &Hotkeys) -> bool {
-    dup(&hk.edit_title, &hk.edit_description)
-        || dup(&hk.edit_title, &hk.toggle_overlay)
-        || dup(&hk.edit_description, &hk.toggle_overlay)
-        || dup(&hk.edit_title, &hk.snap_position)
-        || dup(&hk.edit_description, &hk.snap_position)
-        || dup(&hk.toggle_overlay, &hk.snap_position)
-}
+use mddskmgr::hotkeys::has_duplicates;
 
 #[test]
 fn detects_duplicate_hotkeys() {

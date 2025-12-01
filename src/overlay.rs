@@ -295,7 +295,7 @@ impl Overlay {
                 let mut wtext: Vec<u16> = if hints.is_empty() {
                     text.encode_utf16().collect()
                 } else {
-                    format!("{} {}", text, hints).encode_utf16().collect()
+                    format!("{text} {hints}").encode_utf16().collect()
                 };
                 let _ = DrawTextW(
                     mem_dc.handle(),
@@ -381,7 +381,7 @@ impl Overlay {
             let combined = if hints.is_empty() {
                 text.to_string()
             } else {
-                format!("{} {}", text, hints)
+                format!("{text} {hints}")
             };
             let s = to_utf16(&combined);
             let layout = factory.CreateTextLayout(&s[..s.len() - 1], &tf, 4096.0, 4096.0)?;
@@ -431,7 +431,7 @@ fn get_dwrite_factory() -> Result<&'static IDWriteFactory> {
     static FACTORY: OnceCell<IDWriteFactory> = OnceCell::new();
     FACTORY.get_or_try_init(|| {
         unsafe { DWriteCreateFactory::<IDWriteFactory>(DWRITE_FACTORY_TYPE_SHARED) }
-            .map_err(|e| anyhow!("DWriteCreateFactory failed: {:?}", e))
+            .map_err(|e| anyhow!("DWriteCreateFactory failed: {e:?}"))
     })
 }
 
@@ -439,7 +439,7 @@ fn get_d2d_factory() -> Result<&'static ID2D1Factory> {
     static FACTORY: OnceCell<ID2D1Factory> = OnceCell::new();
     FACTORY.get_or_try_init(|| {
         unsafe { D2D1CreateFactory::<ID2D1Factory>(D2D1_FACTORY_TYPE_SINGLE_THREADED, None) }
-            .map_err(|e| anyhow!("D2D1CreateFactory failed: {:?}", e))
+            .map_err(|e| anyhow!("D2D1CreateFactory failed: {e:?}"))
     })
 }
 
@@ -519,7 +519,7 @@ fn render_d2d_with_hints(
         let combined = if hints.is_empty() {
             text.to_string()
         } else {
-            format!("{} {}", text, hints)
+            format!("{text} {hints}")
         };
         let s16 = to_utf16(&combined);
         let layout = dwrite.CreateTextLayout(
