@@ -2,6 +2,7 @@ pub mod autorun;
 pub mod config;
 pub mod core;
 pub mod hotkeys;
+pub mod ipc;
 
 // Windows-only modules
 #[cfg(windows)]

@@ -609,6 +609,9 @@ pub fn main() -> Result<()> {
         return Ok(());
     }
 
+    // Best-effort local IPC for companion tools (e.g., desktop label lookup).
+    mddskmgr::ipc::start_server();
+
     unsafe {
         CoInitializeEx(None, COINIT_APARTMENTTHREADED).ok()?;
 
