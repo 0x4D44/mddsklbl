@@ -31,6 +31,11 @@ use windows::core::PCWSTR;
 const WM_VD_SWITCHED: u32 = WM_APP + 2;
 const WM_CFG_CHANGED: u32 = WM_APP + 3;
 
+// Timer IDs for SetTimer/KillTimer
+const TIMER_VD_POLLER: usize = 1;
+const TIMER_FULLSCREEN_CHECK: usize = 2;
+const TIMER_TOPMOST_REASSERT: usize = 3;
+
 thread_local! {
     static APP: RefCell<Option<AppState>> = const { RefCell::new(None) };
 }
@@ -58,7 +63,7 @@ fn compute_line(cfg: &Config, guid: &str) -> (String, i32) {
         label.title
     };
     let desc = label.description;
-    let line = format!("{} : {}", title, desc);
+    let line = format!("{title} : {desc}");
     (line, cfg.appearance.margin_px)
 }
 
@@ -253,11 +258,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESUL
     match msg {
         WM_CREATE => {
             APP.with(|slot| {
-                let (mut cfg, paths) = config::load_or_default().expect("config load");
-                if cfg.hotkeys.snap_position.key.eq_ignore_ascii_case("S") {
-                    cfg.hotkeys.snap_position.key = "L".into();
-                    let _ = config::save_atomic(&cfg, &paths);
-                }
+                let (cfg, paths) = config::load_or_default().expect("config load");
                 let overlay = Overlay::new(hwnd, &cfg.appearance.font_family, cfg.appearance.font_size_dip).expect("overlay");
                 let taskbar_created_msg = unsafe { RegisterWindowMessageW(PCWSTR(windows::core::w!("TaskbarCreated").as_wide().as_ptr())) };
                 let tray = Tray::new(hwnd, "Desktop Labeler").expect("tray");
@@ -268,10 +269,18 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESUL
                     // Show a friendly tray balloon (without holding a RefCell borrow).
                     let _ = mddskmgr::tray::Tray::balloon_for(hwnd, "Hotkeys", "Duplicate hotkeys detected; adjust labels.json");
                 }
-                let _ = hotkeys::register(hwnd, hk.edit_title.ctrl, hk.edit_title.alt, hk.edit_title.shift, &hk.edit_title.key, HK_EDIT_TITLE);
-                let _ = hotkeys::register(hwnd, hk.edit_description.ctrl, hk.edit_description.alt, hk.edit_description.shift, &hk.edit_description.key, HK_EDIT_DESC);
-                let _ = hotkeys::register(hwnd, hk.toggle_overlay.ctrl, hk.toggle_overlay.alt, hk.toggle_overlay.shift, &hk.toggle_overlay.key, HK_TOGGLE);
-                let _ = hotkeys::register(hwnd, hk.snap_position.ctrl, hk.snap_position.alt, hk.snap_position.shift, &hk.snap_position.key, hotkeys::HK_SNAP);
+                if !hotkeys::register(hwnd, hk.edit_title.ctrl, hk.edit_title.alt, hk.edit_title.shift, &hk.edit_title.key, HK_EDIT_TITLE).unwrap_or(false) {
+                    tracing::warn!(key=%hk.edit_title.key, "Failed to register edit_title hotkey");
+                }
+                if !hotkeys::register(hwnd, hk.edit_description.ctrl, hk.edit_description.alt, hk.edit_description.shift, &hk.edit_description.key, HK_EDIT_DESC).unwrap_or(false) {
+                    tracing::warn!(key=%hk.edit_description.key, "Failed to register edit_description hotkey");
+                }
+                if !hotkeys::register(hwnd, hk.toggle_overlay.ctrl, hk.toggle_overlay.alt, hk.toggle_overlay.shift, &hk.toggle_overlay.key, HK_TOGGLE).unwrap_or(false) {
+                    tracing::warn!(key=%hk.toggle_overlay.key, "Failed to register toggle_overlay hotkey");
+                }
+                if !hotkeys::register(hwnd, hk.snap_position.ctrl, hk.snap_position.alt, hk.snap_position.shift, &hk.snap_position.key, hotkeys::HK_SNAP).unwrap_or(false) {
+                    tracing::warn!(key=%hk.snap_position.key, "Failed to register snap_position hotkey");
+                }
 
                 let current_guid = vd::get_current_desktop_guid();
                 let vd_thread = mddskmgr::vd::start_vd_events(hwnd, WM_VD_SWITCHED);
@@ -354,7 +363,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESUL
             LRESULT(0)
         }
         WM_TIMER => {
-            if w.0 == 1 { // VD poller
+            if w.0 == TIMER_VD_POLLER {
                 let mut snapshot: Option<(Overlay, Config, String)> = None;
                 APP.with(|slot| {
                     if let Some(app) = &mut *slot.borrow_mut() {
@@ -366,7 +375,7 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESUL
                     }
                 });
                 if let Some((ov, cfg_clone, gid)) = snapshot { draw_overlay_line(&ov, &cfg_clone, &gid); }
-            } else if w.0 == 2 {
+            } else if w.0 == TIMER_FULLSCREEN_CHECK {
                 APP.with(|slot| {
                     if let Some(app) = &mut *slot.borrow_mut() {
                         let hide = if app.cfg.appearance.hide_on_fullscreen { is_foreground_fullscreen(app) } else { false };
@@ -374,8 +383,8 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESUL
                     }
                 });
             }
-            if w.0 == 2 { refresh_visibility_now(); }
-            if w.0 == 3 {
+            if w.0 == TIMER_FULLSCREEN_CHECK { refresh_visibility_now(); }
+            if w.0 == TIMER_TOPMOST_REASSERT {
                 // Keep overlay at the top of TOPMOST band without stealing focus
                 let visible = APP.with(|slot| {
                     if let Some(app) = &*slot.borrow() {
@@ -509,9 +518,9 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESUL
                 if let Some(app) = &mut *slot.borrow_mut() {
                     // Stop timers to avoid re-entrancy during teardown
                     unsafe {
-                        let _ = KillTimer(hwnd, 1);
-                        let _ = KillTimer(hwnd, 2);
-                        let _ = KillTimer(hwnd, 3);
+                        let _ = KillTimer(hwnd, TIMER_VD_POLLER);
+                        let _ = KillTimer(hwnd, TIMER_FULLSCREEN_CHECK);
+                        let _ = KillTimer(hwnd, TIMER_TOPMOST_REASSERT);
                     }
                     mddskmgr::hotkeys::unregister(app.hwnd, HK_EDIT_TITLE);
                     mddskmgr::hotkeys::unregister(app.hwnd, HK_EDIT_DESC);
@@ -548,16 +557,16 @@ fn start_runtime_services(hwnd: HWND) {
             if let Some(app) = &*borrowed {
                 if app.vd_thread.is_none() {
                     unsafe {
-                        SetTimer(hwnd, 1, 250, None);
+                        SetTimer(hwnd, TIMER_VD_POLLER, 250, None);
                     }
                     vd::start_vd_poller(hwnd, WM_VD_SWITCHED);
                 }
                 unsafe {
-                    SetTimer(hwnd, 2, 1000, None);
+                    SetTimer(hwnd, TIMER_FULLSCREEN_CHECK, 1000, None);
                 }
                 // Periodic topmost reassertion
                 unsafe {
-                    SetTimer(hwnd, 3, 1200, None);
+                    SetTimer(hwnd, TIMER_TOPMOST_REASSERT, 1200, None);
                 }
                 unsafe {
                     let _ = WTSRegisterSessionNotification(hwnd, NOTIFY_FOR_THIS_SESSION);

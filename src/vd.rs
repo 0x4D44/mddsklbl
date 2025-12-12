@@ -1,4 +1,3 @@
-use anyhow::Result;
 use core::ffi::c_void;
 use std::sync::mpsc;
 use std::thread;
@@ -11,18 +10,11 @@ pub fn get_current_desktop_guid() -> String {
     #[cfg(windows)]
     {
         if let Ok(d) = winvd::get_current_desktop() {
-            return format!("{:?}", d);
+            return format!("{d:?}");
         }
     }
     // Fallback if API unavailable
     "default".to_string()
-}
-
-// Placeholder for event listener; an implementation can spawn a thread and
-// post a custom window message to the UI thread when the GUID changes.
-pub fn start_vd_listener() -> Result<()> {
-    // TODO: integrate winvd::listen_desktop_events and PostMessage to UI.
-    Ok(())
 }
 
 pub fn start_vd_poller(hwnd: HWND, msg: u32) {

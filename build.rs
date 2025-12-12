@@ -1,3 +1,4 @@
+#[cfg(windows)]
 fn make_icon() -> std::path::PathBuf {
     use ico::{IconDir, IconDirEntry, IconImage};
     use image::{ImageBuffer, Rgba};
@@ -56,22 +57,19 @@ fn make_icon() -> std::path::PathBuf {
 }
 
 fn main() {
-    // Embed a manifest enabling Per-Monitor v2 DPI awareness.
-    #[allow(unused_must_use)]
-    {
-        embed_manifest::embed_manifest_file("app.manifest");
-    }
-
     // Generate an icon at build time and compile Windows version resources (icon + version info).
     #[cfg(windows)]
     {
+        // Embed a manifest enabling Per-Monitor v2 DPI awareness.
+        embed_manifest::embed_manifest_file("app.manifest")
+            .expect("failed to embed manifest file");
         let ico_path = make_icon();
         let mut res = winres::WindowsResource::new();
         res.set_icon(&ico_path.to_string_lossy());
 
         // Version/info resources
         let pkg_ver = std::env::var("CARGO_PKG_VERSION").unwrap_or_else(|_| "1.0.0".into());
-        let file_ver = format!("{}.0", pkg_ver); // Windows expects 4-part versions
+        let file_ver = format!("{pkg_ver}.0"); // Windows expects 4-part versions
         res.set("FileDescription", "Desktop Labeler");
         res.set("ProductName", "Desktop Labeler");
         res.set("CompanyName", "0x4D44 Software");

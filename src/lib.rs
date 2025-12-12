@@ -3,6 +3,7 @@ pub mod config;
 pub mod core;
 pub mod hotkeys;
 pub mod ipc;
+pub mod utils;
 
 // Windows-only modules
 #[cfg(windows)]

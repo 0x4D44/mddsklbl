@@ -73,11 +73,11 @@ fn run_server_forever() -> anyhow::Result<()> {
         let handle_guard = HandleGuard(handle);
 
         let connected = unsafe { ConnectNamedPipe(handle_guard.0, None) };
-        if let Err(e) = connected {
-            if e.code() != windows::core::HRESULT::from_win32(ERROR_PIPE_CONNECTED.0) {
-                tracing::warn!(error=%e, "ConnectNamedPipe failed");
-                continue;
-            }
+        if let Err(e) = connected
+            && e.code() != windows::core::HRESULT::from_win32(ERROR_PIPE_CONNECTED.0)
+        {
+            tracing::warn!(error=%e, "ConnectNamedPipe failed");
+            continue;
         }
 
         let response = match read_request(handle_guard.0) {
