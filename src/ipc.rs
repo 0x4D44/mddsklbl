@@ -35,15 +35,15 @@ pub fn start_server() {
 }
 
 fn run_server_forever() -> anyhow::Result<()> {
-    use windows::core::PCWSTR;
     use windows::Win32::Foundation::{ERROR_PIPE_CONNECTED, HANDLE};
     use windows::Win32::Storage::FileSystem::{
-        FlushFileBuffers, WriteFile, FILE_FLAGS_AND_ATTRIBUTES, PIPE_ACCESS_DUPLEX,
+        FILE_FLAGS_AND_ATTRIBUTES, FlushFileBuffers, PIPE_ACCESS_DUPLEX, WriteFile,
     };
     use windows::Win32::System::Pipes::{
         ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_READMODE_MESSAGE,
         PIPE_TYPE_MESSAGE, PIPE_WAIT,
     };
+    use windows::core::PCWSTR;
 
     let mut pipe_name: Vec<u16> = PIPE_NAME.encode_utf16().chain(std::iter::once(0)).collect();
     let pipe_name = PCWSTR(pipe_name.as_mut_ptr());

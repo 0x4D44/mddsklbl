@@ -61,8 +61,7 @@ fn main() {
     #[cfg(windows)]
     {
         // Embed a manifest enabling Per-Monitor v2 DPI awareness.
-        embed_manifest::embed_manifest_file("app.manifest")
-            .expect("failed to embed manifest file");
+        embed_manifest::embed_manifest_file("app.manifest").expect("failed to embed manifest file");
         let ico_path = make_icon();
         let mut res = winres::WindowsResource::new();
         res.set_icon(&ico_path.to_string_lossy());
