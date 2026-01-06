@@ -1,9 +1,14 @@
 ; Inno Setup Script for Desktop Labeler (mddsklbl)
-; Build with: iscc installers\DesktopLabeler.iss
+; Build with: iscc /DMyAppVersion="x.y.z" installers\DesktopLabeler.iss
+;
+; Version must be passed via command line to ensure sync with Cargo.toml
 
 #define MyAppName "Desktop Labeler"
-#define MyAppVersion "1.1.2"
-#define MyAppPublisher "0x4D44"
+; Version can be overridden via /DMyAppVersion="x.y.z" on command line
+#ifndef MyAppVersion
+  #error "MyAppVersion must be defined via /DMyAppVersion on command line"
+#endif
+#define MyAppPublisher "0x4D44 Software"
 #define MyAppExeName "mddsklbl.exe"
 
 [Setup]

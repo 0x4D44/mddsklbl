@@ -19,8 +19,22 @@ jobs:
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Build (release)
+      - name: Build release
         run: cargo build --release
+
+      - name: Extract version from Cargo.toml
+        id: version
+        shell: pwsh
+        run: |
+          $content = Get-Content Cargo.toml -Raw
+          if ($content -match '(?s)\[package\].*?version\s*=\s*"([^"]+)"') {
+            $version = $matches[1]
+            Write-Host "Extracted version: $version"
+            echo "version=$version" >> $env:GITHUB_OUTPUT
+          } else {
+            Write-Error "Failed to extract version from Cargo.toml"
+            exit 1
+          }
 
       - name: Install Inno Setup
         run: choco install innosetup -y --no-progress
@@ -39,7 +53,7 @@ jobs:
 
       - name: Build Installer
         run: |
-          & "${{ steps.inno.outputs.iscc }}" installers\DesktopLabeler.iss
+          & "${{ steps.inno.outputs.iscc }}" /DMyAppVersion="${{ steps.version.outputs.version }}" installers\DesktopLabeler.iss
 
       - name: Locate installer
         id: locate
