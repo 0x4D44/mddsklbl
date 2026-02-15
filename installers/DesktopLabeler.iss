@@ -2,8 +2,8 @@
 ; Build with: iscc installers\DesktopLabeler.iss
 
 #define MyAppName "Desktop Labeler"
-#define MyAppVersion "1.1.0"
-#define MyAppPublisher "0x4D44 Software"
+#define MyAppVersion "1.1.2"
+#define MyAppPublisher "0x4D44"
 #define MyAppExeName "mddsklbl.exe"
 
 [Setup]
@@ -11,16 +11,17 @@ AppId={{F7D9C1E7-AB15-4EFA-8E3F-7C6E9F6D9B21}}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
-DefaultDirName={pf}\0x4D44 Software\{#MyAppName}
-DefaultGroupName={#MyAppName}
+DefaultDirName={commonpf}\0x4D44 Software\{#MyAppName}
+DefaultGroupName=0x4D44 Software\{#MyAppName}
 DisableDirPage=no
 DisableProgramGroupPage=yes
+UsedUserAreasWarning=no
 OutputBaseFilename=DesktopLabeler-{#MyAppVersion}-Setup
 OutputDir=.
 Compression=lzma
 SolidCompression=yes
-ArchitecturesAllowed=x64
-ArchitecturesInstallIn64BitMode=x64
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
@@ -31,8 +32,10 @@ Source: "..\target\release\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignorevers
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
 
 [Tasks]
+Name: "desktopicon"; Description: "Create a desktop shortcut"; Flags: checkedonce
 Name: "autostart"; Description: "Run at Windows startup"; Flags: checkedonce
 
 [Registry]
