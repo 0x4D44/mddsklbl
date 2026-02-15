@@ -2,7 +2,7 @@
 ; Build with: iscc installers\DesktopLabeler.iss
 
 #define MyAppName "Desktop Labeler"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "0x4D44 Software"
 #define MyAppExeName "mddsklbl.exe"
 

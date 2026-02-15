@@ -30,6 +30,9 @@ use windows::core::PCWSTR;
 
 const WM_VD_SWITCHED: u32 = WM_APP + 2;
 const WM_CFG_CHANGED: u32 = WM_APP + 3;
+const WM_WTSSESSION_CHANGE: u32 = 0x02B1;
+const WTS_SESSION_LOCK: u32 = 0x7;
+const WTS_SESSION_UNLOCK: u32 = 0x8;
 
 // Timer IDs for SetTimer/KillTimer
 const TIMER_VD_POLLER: usize = 1;
@@ -63,7 +66,11 @@ fn compute_line(cfg: &Config, guid: &str) -> (String, i32) {
         label.title
     };
     let desc = label.description;
-    let line = format!("{title} : {desc}");
+    let line = if desc.trim().is_empty() {
+        title
+    } else {
+        format!("{title} : {desc}")
+    };
     (line, cfg.appearance.margin_px)
 }
 
@@ -258,10 +265,31 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESUL
     match msg {
         WM_CREATE => {
             APP.with(|slot| {
-                let (cfg, paths) = config::load_or_default().expect("config load");
-                let overlay = Overlay::new(hwnd, &cfg.appearance.font_family, cfg.appearance.font_size_dip).expect("overlay");
+                let (cfg, paths) = match config::load_or_default() {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::error!(error=%e, "Fatal: config load failed");
+                        unsafe { PostQuitMessage(1); }
+                        return;
+                    }
+                };
+                let overlay = match Overlay::new(hwnd, &cfg.appearance.font_family, cfg.appearance.font_size_dip) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::error!(error=%e, "Fatal: overlay creation failed");
+                        unsafe { PostQuitMessage(1); }
+                        return;
+                    }
+                };
                 let taskbar_created_msg = unsafe { RegisterWindowMessageW(PCWSTR(windows::core::w!("TaskbarCreated").as_wide().as_ptr())) };
-                let tray = Tray::new(hwnd, "Desktop Labeler").expect("tray");
+                let tray = match Tray::new(hwnd, "Desktop Labeler") {
+                    Ok(v) => v,
+                    Err(e) => {
+                        tracing::error!(error=%e, "Fatal: tray icon creation failed");
+                        unsafe { PostQuitMessage(1); }
+                        return;
+                    }
+                };
 
                 // Register hotkeys (warn on duplicates)
                 let hk = &cfg.hotkeys;
@@ -298,10 +326,13 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESUL
         msg if {
             let mut is_taskbar = false;
             APP.with(|slot| {
-                if let Some(app) = &*slot.borrow() { is_taskbar = msg == app.taskbar_created_msg; }
+                if let Some(app) = &*slot.borrow() {
+                    is_taskbar = msg == app.taskbar_created_msg;
+                }
             });
             is_taskbar
-        } => {
+        } =>
+        {
             // Re-add the tray icon without keeping a RefCell borrow during Shell calls.
             let _ = mddskmgr::tray::Tray::re_add_for(hwnd);
             LRESULT(0)
@@ -325,10 +356,16 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESUL
                     if id != app.current_guid {
                         app.current_guid = id.clone();
                     }
-                    snapshot = Some((app.overlay.clone(), app.cfg.clone(), app.current_guid.clone()));
+                    snapshot = Some((
+                        app.overlay.clone(),
+                        app.cfg.clone(),
+                        app.current_guid.clone(),
+                    ));
                 }
             });
-            if let Some((ov, cfg_clone, gid)) = snapshot { draw_overlay_line(&ov, &cfg_clone, &gid); }
+            if let Some((ov, cfg_clone, gid)) = snapshot {
+                draw_overlay_line(&ov, &cfg_clone, &gid);
+            }
             LRESULT(0)
         }
         WM_CFG_CHANGED => {
@@ -337,10 +374,9 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESUL
             let mut snapshot: Option<(Overlay, Config, String, HWND)> = None;
             APP.with(|slot| {
                 let mut borrow = slot.borrow_mut();
-                if let (Some(app), Ok((new_cfg, _))) = (
-                    &mut *borrow,
-                    mddskmgr::config::load_or_default(),
-                ) {
+                if let (Some(app), Ok((new_cfg, _))) =
+                    (&mut *borrow, mddskmgr::config::load_or_default())
+                {
                     app.cfg = new_cfg;
                     // Re-register hotkeys
                     mddskmgr::hotkeys::unregister(app.hwnd, HK_EDIT_TITLE);
@@ -348,17 +384,62 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESUL
                     mddskmgr::hotkeys::unregister(app.hwnd, HK_TOGGLE);
                     mddskmgr::hotkeys::unregister(app.hwnd, hotkeys::HK_SNAP);
                     let hk = &app.cfg.hotkeys;
-                    let ok1 = mddskmgr::hotkeys::register(app.hwnd, hk.edit_title.ctrl, hk.edit_title.alt, hk.edit_title.shift, &hk.edit_title.key, HK_EDIT_TITLE).unwrap_or(false);
-                    let ok2 = mddskmgr::hotkeys::register(app.hwnd, hk.edit_description.ctrl, hk.edit_description.alt, hk.edit_description.shift, &hk.edit_description.key, HK_EDIT_DESC).unwrap_or(false);
-                    let ok3 = mddskmgr::hotkeys::register(app.hwnd, hk.toggle_overlay.ctrl, hk.toggle_overlay.alt, hk.toggle_overlay.shift, &hk.toggle_overlay.key, HK_TOGGLE).unwrap_or(false);
-                    let ok4 = mddskmgr::hotkeys::register(app.hwnd, hk.snap_position.ctrl, hk.snap_position.alt, hk.snap_position.shift, &hk.snap_position.key, hotkeys::HK_SNAP).unwrap_or(false);
-                    if !(ok1 && ok2 && ok3 && ok4) { need_balloon = true; }
-                    snapshot = Some((app.overlay.clone(), app.cfg.clone(), app.current_guid.clone(), app.hwnd));
+                    let ok1 = mddskmgr::hotkeys::register(
+                        app.hwnd,
+                        hk.edit_title.ctrl,
+                        hk.edit_title.alt,
+                        hk.edit_title.shift,
+                        &hk.edit_title.key,
+                        HK_EDIT_TITLE,
+                    )
+                    .unwrap_or(false);
+                    let ok2 = mddskmgr::hotkeys::register(
+                        app.hwnd,
+                        hk.edit_description.ctrl,
+                        hk.edit_description.alt,
+                        hk.edit_description.shift,
+                        &hk.edit_description.key,
+                        HK_EDIT_DESC,
+                    )
+                    .unwrap_or(false);
+                    let ok3 = mddskmgr::hotkeys::register(
+                        app.hwnd,
+                        hk.toggle_overlay.ctrl,
+                        hk.toggle_overlay.alt,
+                        hk.toggle_overlay.shift,
+                        &hk.toggle_overlay.key,
+                        HK_TOGGLE,
+                    )
+                    .unwrap_or(false);
+                    let ok4 = mddskmgr::hotkeys::register(
+                        app.hwnd,
+                        hk.snap_position.ctrl,
+                        hk.snap_position.alt,
+                        hk.snap_position.shift,
+                        &hk.snap_position.key,
+                        hotkeys::HK_SNAP,
+                    )
+                    .unwrap_or(false);
+                    if !(ok1 && ok2 && ok3 && ok4) {
+                        need_balloon = true;
+                    }
+                    snapshot = Some((
+                        app.overlay.clone(),
+                        app.cfg.clone(),
+                        app.current_guid.clone(),
+                        app.hwnd,
+                    ));
                 }
             });
-            if let Some((ov, cfg_clone, gid, _)) = snapshot { draw_overlay_line(&ov, &cfg_clone, &gid); }
+            if let Some((ov, cfg_clone, gid, _)) = snapshot {
+                draw_overlay_line(&ov, &cfg_clone, &gid);
+            }
             if need_balloon {
-                let _ = mddskmgr::tray::Tray::balloon_for(hwnd, "Hotkeys", "Some hotkeys failed to register. Adjust in labels.json");
+                let _ = mddskmgr::tray::Tray::balloon_for(
+                    hwnd,
+                    "Hotkeys",
+                    "Some hotkeys failed to register. Adjust in labels.json",
+                );
             }
             LRESULT(0)
         }
@@ -371,19 +452,31 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESUL
                         if id != app.current_guid {
                             app.current_guid = id.clone();
                         }
-                        snapshot = Some((app.overlay.clone(), app.cfg.clone(), app.current_guid.clone()));
+                        snapshot = Some((
+                            app.overlay.clone(),
+                            app.cfg.clone(),
+                            app.current_guid.clone(),
+                        ));
                     }
                 });
-                if let Some((ov, cfg_clone, gid)) = snapshot { draw_overlay_line(&ov, &cfg_clone, &gid); }
+                if let Some((ov, cfg_clone, gid)) = snapshot {
+                    draw_overlay_line(&ov, &cfg_clone, &gid);
+                }
             } else if w.0 == TIMER_FULLSCREEN_CHECK {
                 APP.with(|slot| {
                     if let Some(app) = &mut *slot.borrow_mut() {
-                        let hide = if app.cfg.appearance.hide_on_fullscreen { is_foreground_fullscreen(app) } else { false };
+                        let hide = if app.cfg.appearance.hide_on_fullscreen {
+                            is_foreground_fullscreen(app)
+                        } else {
+                            false
+                        };
                         app.hide_for_fullscreen = hide;
                     }
                 });
             }
-            if w.0 == TIMER_FULLSCREEN_CHECK { refresh_visibility_now(); }
+            if w.0 == TIMER_FULLSCREEN_CHECK {
+                refresh_visibility_now();
+            }
             if w.0 == TIMER_TOPMOST_REASSERT {
                 // Keep overlay at the top of TOPMOST band without stealing focus
                 let visible = APP.with(|slot| {
@@ -393,9 +486,23 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESUL
                             app.hide_for_accessibility,
                             app.hide_for_fullscreen,
                         )
-                    } else { false }
+                    } else {
+                        false
+                    }
                 });
-                if visible { unsafe { let _ = SetWindowPos(hwnd, HWND_TOPMOST, 0,0,0,0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE); } }
+                if visible {
+                    unsafe {
+                        let _ = SetWindowPos(
+                            hwnd,
+                            HWND_TOPMOST,
+                            0,
+                            0,
+                            0,
+                            0,
+                            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+                        );
+                    }
+                }
             }
             LRESULT(0)
         }
@@ -408,13 +515,17 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESUL
             refresh_visibility_now();
             LRESULT(0)
         }
-        0x02B1 /* WM_WTSSESSION_CHANGE */ => {
+        WM_WTSSESSION_CHANGE => {
             let code = w.0 as u32;
             APP.with(|slot| {
                 if let Some(app) = &mut *slot.borrow_mut() {
-                    match code { // 0x7 lock, 0x8 unlock
-                        0x7 => { app.hide_for_accessibility = true; }
-                        0x8 => { app.hide_for_accessibility = is_high_contrast(); }
+                    match code {
+                        WTS_SESSION_LOCK => {
+                            app.hide_for_accessibility = true;
+                        }
+                        WTS_SESSION_UNLOCK => {
+                            app.hide_for_accessibility = is_high_contrast();
+                        }
                         _ => {}
                     }
                 }
@@ -430,7 +541,9 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESUL
                 HK_EDIT_DESC => quick_edit(false),
                 HK_TOGGLE => {
                     APP.with(|slot| {
-                        if let Some(app) = &mut *slot.borrow_mut() { app.visible = !app.visible; }
+                        if let Some(app) = &mut *slot.borrow_mut() {
+                            app.visible = !app.visible;
+                        }
                     });
                     need_refresh = true;
                 }
@@ -440,23 +553,36 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESUL
                         if let Some(app) = &mut *slot.borrow_mut() {
                             app.anchor_index = (app.anchor_index + 1) % 3;
                             let ratio = anchor_ratio_from_index(app.anchor_index);
-                            snap = Some((app.overlay.clone(), app.cfg.clone(), app.current_guid.clone(), ratio));
+                            snap = Some((
+                                app.overlay.clone(),
+                                app.cfg.clone(),
+                                app.current_guid.clone(),
+                                ratio,
+                            ));
                         }
                     });
-                    if let Some((ov, cfg_clone, gid, _ratio)) = snap { draw_overlay_line(&ov, &cfg_clone, &gid); }
+                    if let Some((ov, cfg_clone, gid, _ratio)) = snap {
+                        draw_overlay_line(&ov, &cfg_clone, &gid);
+                    }
                 }
                 _ => {}
             }
-            if need_refresh { refresh_visibility_now(); }
+            if need_refresh {
+                refresh_visibility_now();
+            }
             LRESULT(0)
         }
         TRAY_MSG => {
             let l = l.0 as u32;
             match l {
-                WM_CONTEXTMENU | WM_RBUTTONUP => { let _ = mddskmgr::tray::Tray::show_popup_menu(hwnd); }
+                WM_CONTEXTMENU | WM_RBUTTONUP => {
+                    let _ = mddskmgr::tray::Tray::show_popup_menu(hwnd);
+                }
                 WM_LBUTTONDBLCLK => {
                     APP.with(|slot| {
-                        if let Some(app) = &mut *slot.borrow_mut() { app.visible = true; }
+                        if let Some(app) = &mut *slot.borrow_mut() {
+                            app.visible = true;
+                        }
                     });
                     refresh_visibility_now();
                 }
@@ -465,7 +591,9 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESUL
             LRESULT(0)
         }
         WM_CLOSE => {
-            unsafe { let _ = DestroyWindow(hwnd); }
+            unsafe {
+                let _ = DestroyWindow(hwnd);
+            }
             LRESULT(0)
         }
         WM_COMMAND => {
@@ -475,7 +603,9 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESUL
                 CMD_EDIT_DESC => quick_edit(false),
                 CMD_TOGGLE => {
                     APP.with(|slot| {
-                        if let Some(app) = &mut *slot.borrow_mut() { app.visible = !app.visible; }
+                        if let Some(app) = &mut *slot.borrow_mut() {
+                            app.visible = !app.visible;
+                        }
                     });
                     refresh_visibility_now();
                 }
@@ -487,28 +617,38 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESUL
                             .map(|app| app.cfg_paths.cfg_file.to_string_lossy().to_string())
                     });
                     if let Some(path) = path {
-                        let wpath: Vec<u16> = path.encode_utf16().chain(std::iter::once(0)).collect();
-                        unsafe { let _ = ShellExecuteW(None, PCWSTR(windows::core::w!("open").as_wide().as_ptr()), PCWSTR(wpath.as_ptr()), None, None, SW_SHOWNORMAL); }
+                        let wpath: Vec<u16> =
+                            path.encode_utf16().chain(std::iter::once(0)).collect();
+                        unsafe {
+                            let _ = ShellExecuteW(
+                                None,
+                                PCWSTR(windows::core::w!("open").as_wide().as_ptr()),
+                                PCWSTR(wpath.as_ptr()),
+                                None,
+                                None,
+                                SW_SHOWNORMAL,
+                            );
+                        }
                     }
                 }
                 CMD_EXIT => {
                     // Trigger orderly teardown to avoid hangs: destroy window -> WM_DESTROY posts quit.
-                    unsafe { let _ = DestroyWindow(hwnd); }
-                },
+                    unsafe {
+                        let _ = DestroyWindow(hwnd);
+                    }
+                }
                 tray::CMD_RUN_AT_STARTUP => {
                     let cur = autorun::get_run_at_login();
                     let _ = autorun::set_run_at_login(!cur);
                 }
-                tray::CMD_ABOUT => {
-                    unsafe {
-                        let _ = MessageBoxW(
+                tray::CMD_ABOUT => unsafe {
+                    let _ = MessageBoxW(
                             hwnd,
                             PCWSTR(windows::core::w!("Desktop Labeler\r\n\r\nShows a per-desktop title overlay on the primary monitor.\r\n\r\nHotkeys:\r\n  Ctrl+Alt+T  Edit Title\r\n  Ctrl+Alt+D  Edit Description\r\n  Ctrl+Alt+O  Toggle Overlay\r\n  Ctrl+Alt+L  Snap Position").as_wide().as_ptr()),
                             PCWSTR(windows::core::w!("About Desktop Labeler").as_wide().as_ptr()),
                             MB_OK | MB_ICONINFORMATION,
                         );
-                    }
-                }
+                },
                 _ => {}
             }
             LRESULT(0)
@@ -532,11 +672,15 @@ extern "system" fn wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LRESUL
                     app.vd_thread = None;
                 }
             });
-            unsafe { let _ = WTSUnRegisterSessionNotification(hwnd); }
-            unsafe { PostQuitMessage(0); }
+            unsafe {
+                let _ = WTSUnRegisterSessionNotification(hwnd);
+            }
+            unsafe {
+                PostQuitMessage(0);
+            }
             LRESULT(0)
         }
-        _ => unsafe { DefWindowProcW(hwnd, msg, w, l) }
+        _ => unsafe { DefWindowProcW(hwnd, msg, w, l) },
     }
 }
 
@@ -669,6 +813,66 @@ pub fn main() -> Result<()> {
 mod tests {
     use super::*;
     use std::panic::catch_unwind;
+
+    #[test]
+    fn compute_line_with_both_fields() {
+        let mut cfg = Config::default();
+        cfg.desktops.insert(
+            "g1".into(),
+            mddskmgr::config::DesktopLabel {
+                title: "Work".into(),
+                description: "Tickets".into(),
+            },
+        );
+        let (line, margin) = compute_line(&cfg, "g1");
+        assert_eq!(line, "Work : Tickets");
+        assert_eq!(margin, cfg.appearance.margin_px);
+    }
+
+    #[test]
+    fn compute_line_empty_title_uses_default() {
+        let mut cfg = Config::default();
+        cfg.desktops.insert(
+            "g1".into(),
+            mddskmgr::config::DesktopLabel {
+                title: "".into(),
+                description: "desc".into(),
+            },
+        );
+        let (line, _) = compute_line(&cfg, "g1");
+        assert_eq!(line, "Desktop : desc");
+    }
+
+    #[test]
+    fn compute_line_whitespace_title_uses_default() {
+        let mut cfg = Config::default();
+        cfg.desktops.insert(
+            "g1".into(),
+            mddskmgr::config::DesktopLabel {
+                title: "   ".into(),
+                description: "".into(),
+            },
+        );
+        let (line, _) = compute_line(&cfg, "g1");
+        assert_eq!(line, "Desktop");
+    }
+
+    #[test]
+    fn compute_line_unknown_guid_uses_defaults() {
+        let cfg = Config::default();
+        let (line, _) = compute_line(&cfg, "nonexistent");
+        assert_eq!(line, "Desktop");
+    }
+
+    #[test]
+    fn anchor_ratio_cycles_correctly() {
+        assert!((anchor_ratio_from_index(0) - 0.25).abs() < f32::EPSILON);
+        assert!((anchor_ratio_from_index(1) - 0.5).abs() < f32::EPSILON);
+        assert!((anchor_ratio_from_index(2) - 0.75).abs() < f32::EPSILON);
+        // Wraps around
+        assert!((anchor_ratio_from_index(3) - 0.25).abs() < f32::EPSILON);
+        assert!((anchor_ratio_from_index(4) - 0.5).abs() < f32::EPSILON);
+    }
 
     #[test]
     fn start_runtime_no_panic() {

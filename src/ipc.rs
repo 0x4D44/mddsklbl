@@ -222,4 +222,39 @@ mod tests {
         );
         assert_eq!(extract_guid_from_key("not a key"), None);
     }
+
+    #[test]
+    fn extracts_guid_empty_key() {
+        assert_eq!(extract_guid_from_key(""), None);
+    }
+
+    #[test]
+    fn extracts_guid_partial_key() {
+        // Missing closing paren
+        assert_eq!(extract_guid_from_key("Desktop(Guid(ABCD"), None);
+    }
+
+    #[test]
+    fn deserializes_list_request() {
+        let req: Request = serde_json::from_str(r#"{"op":"list"}"#).unwrap();
+        assert!(matches!(req, Request::List));
+    }
+
+    #[test]
+    fn deserializes_resolve_window_request() {
+        let req: Request = serde_json::from_str(r#"{"op":"resolve_window","hwnd":12345}"#).unwrap();
+        assert!(matches!(req, Request::ResolveWindow { hwnd: 12345 }));
+    }
+
+    #[test]
+    fn rejects_unknown_op() {
+        let result = serde_json::from_str::<Request>(r#"{"op":"unknown"}"#);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn rejects_malformed_json() {
+        let result = serde_json::from_str::<Request>(r#"not json"#);
+        assert!(result.is_err());
+    }
 }

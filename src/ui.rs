@@ -25,6 +25,9 @@ struct DialogState {
 const EM_LIMITTEXT: u32 = 0x00C5;
 const EM_SETSEL: u32 = 0x00B1;
 const SS_LEFT: u32 = 0x0000;
+const WM_DPICHANGED: u32 = 0x02E0;
+const VK_RETURN: u32 = 0x0D;
+const VK_ESCAPE: u32 = 0x1B;
 
 fn scale(dpi: u32, v: i32) -> i32 {
     ((v as i64 * dpi as i64 + 48) / 96) as i32
@@ -165,10 +168,11 @@ pub fn prompt_text(parent: HWND, caption: &str, hint: &str, initial: &str) -> Op
         });
         let state_ptr = Box::into_raw(state);
 
+        let caption_u16 = to_utf16(caption);
         let hwnd = CreateWindowExW(
             WINDOW_EX_STYLE(WS_EX_TOOLWINDOW.0 | WS_EX_TOPMOST.0 | WS_EX_CONTROLPARENT.0),
             class,
-            PCWSTR(to_utf16(caption).as_ptr()),
+            PCWSTR(caption_u16.as_ptr()),
             WS_CAPTION | WS_SYSMENU | WS_POPUPWINDOW,
             x,
             y,
@@ -246,23 +250,31 @@ extern "system" fn dlg_wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LR
                         | (ES_AUTOHSCROLL as u32),
                 );
                 // Static hint label
+                let empty_u16 = to_utf16("");
                 let _label = CreateWindowExW(
                     WINDOW_EX_STYLE(0),
                     PCWSTR(windows::core::w!("STATIC").as_wide().as_ptr()),
-                    PCWSTR(to_utf16("").as_ptr()),
+                    PCWSTR(empty_u16.as_ptr()),
                     WINDOW_STYLE(WS_CHILD.0 | WS_VISIBLE.0 | SS_LEFT),
-                    0,0,0,0,
+                    0,
+                    0,
+                    0,
+                    0,
                     hwnd,
                     menu_id(1000),
                     hinst,
                     None,
                 );
+                let edit_empty_u16 = to_utf16("");
                 let edit = CreateWindowExW(
                     WINDOW_EX_STYLE(WS_EX_CLIENTEDGE.0),
                     PCWSTR(windows::core::w!("EDIT").as_wide().as_ptr()),
-                    PCWSTR(to_utf16("").as_ptr()),
+                    PCWSTR(edit_empty_u16.as_ptr()),
                     style,
-                    0,0,0,0,
+                    0,
+                    0,
+                    0,
+                    0,
                     hwnd,
                     menu_id(1001),
                     hinst,
@@ -276,7 +288,10 @@ extern "system" fn dlg_wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LR
                     PCWSTR(windows::core::w!("BUTTON").as_wide().as_ptr()),
                     PCWSTR(windows::core::w!("OK").as_wide().as_ptr()),
                     WINDOW_STYLE(WS_CHILD.0 | WS_VISIBLE.0 | WS_TABSTOP.0 | (BS_PUSHBUTTON as u32)),
-                    0,0,0,0,
+                    0,
+                    0,
+                    0,
+                    0,
                     hwnd,
                     menu_id(1),
                     hinst,
@@ -288,7 +303,10 @@ extern "system" fn dlg_wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LR
                     PCWSTR(windows::core::w!("BUTTON").as_wide().as_ptr()),
                     PCWSTR(windows::core::w!("Cancel").as_wide().as_ptr()),
                     WINDOW_STYLE(WS_CHILD.0 | WS_VISIBLE.0 | WS_TABSTOP.0),
-                    0,0,0,0,
+                    0,
+                    0,
+                    0,
+                    0,
                     hwnd,
                     menu_id(2),
                     hinst,
@@ -299,7 +317,8 @@ extern "system" fn dlg_wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LR
                 let p = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *mut DialogState;
                 if !p.is_null() {
                     (*p).edit_hwnd = edit;
-                    let _ = SetWindowTextW(edit, PCWSTR(to_utf16(&(*p).text).as_ptr()));
+                    let text_u16 = to_utf16(&(*p).text);
+                    let _ = SetWindowTextW(edit, PCWSTR(text_u16.as_ptr()));
                     layout_dialog(hwnd);
                     // Explicitly focus the edit control
                     let _ = SetFocus(edit);
@@ -307,12 +326,13 @@ extern "system" fn dlg_wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LR
                     let _ = SendMessageW(edit, EM_SETSEL, WPARAM_T(0), LPARAM_T(-1));
                     // Set label text
                     if let Ok(label_hwnd) = GetDlgItem(hwnd, 1000) {
-                        let _ = SetWindowTextW(label_hwnd, PCWSTR(to_utf16(&(*p).hint).as_ptr()));
+                        let hint_u16 = to_utf16(&(*p).hint);
+                        let _ = SetWindowTextW(label_hwnd, PCWSTR(hint_u16.as_ptr()));
                     }
                 }
                 LRESULT(0)
             }
-            0x02E0 /* WM_DPICHANGED */ => {
+            WM_DPICHANGED => {
                 layout_dialog(hwnd);
                 LRESULT(0)
             }
@@ -364,13 +384,11 @@ extern "system" fn dlg_wndproc(hwnd: HWND, msg: u32, w: WPARAM, l: LPARAM) -> LR
             WM_KEYDOWN => {
                 let vk = w.0 as u32;
                 match vk {
-                    0x0D => {
-                        // VK_RETURN
+                    VK_RETURN => {
                         let _ = SendMessageW(hwnd, WM_COMMAND, WPARAM_T(1), LPARAM_T(0));
                         LRESULT(0)
                     }
-                    0x1B => {
-                        // VK_ESCAPE
+                    VK_ESCAPE => {
                         let _ = SendMessageW(hwnd, WM_COMMAND, WPARAM_T(2), LPARAM_T(0));
                         LRESULT(0)
                     }

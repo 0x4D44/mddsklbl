@@ -368,9 +368,10 @@ impl Overlay {
     fn measure_text_with_hints(&self, text: &str, hints: &str) -> Result<(i32, i32)> {
         // Use DirectWrite for accurate measurement (apply smaller font to hints)
         let factory = get_dwrite_factory()?;
+        let family_u16 = to_utf16(&self.font_family);
         unsafe {
             let tf = factory.CreateTextFormat(
-                PCWSTR(to_utf16(&self.font_family).as_ptr()),
+                PCWSTR(family_u16.as_ptr()),
                 None,
                 DWRITE_FONT_WEIGHT_NORMAL,
                 DWRITE_FONT_STYLE_NORMAL,
@@ -507,8 +508,9 @@ fn render_d2d_with_hints(
         base.FillRoundedRectangle(&rounded, &bg);
 
         let dwrite = get_dwrite_factory()?;
+        let font_u16 = to_utf16(font);
         let tf = dwrite.CreateTextFormat(
-            PCWSTR(to_utf16(font).as_ptr()),
+            PCWSTR(font_u16.as_ptr()),
             None,
             DWRITE_FONT_WEIGHT_NORMAL,
             DWRITE_FONT_STYLE_NORMAL,

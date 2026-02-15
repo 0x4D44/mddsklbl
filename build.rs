@@ -21,9 +21,9 @@ fn make_icon() -> std::path::PathBuf {
                 let yf = y as f32 + 0.5;
                 let w = size as f32;
                 let h = size as f32;
-                // Distance to a rounded-rect border
-                let dx = (xf - r).max(0.0) + (xf - (w - r)).min(0.0).abs();
-                let dy = (yf - r).max(0.0) + (yf - (h - r)).min(0.0).abs();
+                // Signed distance to the inset rect [r, w-r] x [r, h-r]
+                let dx = (r - xf).max(0.0f32).max(xf - (w - r));
+                let dy = (r - yf).max(0.0f32).max(yf - (h - r));
                 let inside = dx <= 0.0 || dy <= 0.0 || (dx * dx + dy * dy) <= r * r;
                 if inside {
                     img.put_pixel(x, y, Rgba([18, 32, 64, 255]));
@@ -77,7 +77,7 @@ fn main() {
         res.set("InternalName", "mddsklbl");
         res.set("OriginalFilename", "mddsklbl.exe");
         res.set("Comments", "Repo: mddsklbl");
-        res.set("LegalCopyright", "(C) 2025 0x4D44 Software");
+        res.set("LegalCopyright", "(C) 2025-2026 0x4D44 Software");
 
         res.compile().expect("failed to compile Windows resources");
     }

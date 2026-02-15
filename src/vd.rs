@@ -18,7 +18,9 @@ pub fn get_current_desktop_guid() -> String {
 }
 
 pub fn start_vd_poller(hwnd: HWND, msg: u32) {
-    let hwnd_raw = hwnd.0 as usize; // make Send
+    // HWND is !Send (raw pointer), but PostMessageW is safe for cross-thread use.
+    // Cast to usize to satisfy Send, then reconstruct on use.
+    let hwnd_raw = hwnd.0 as usize;
     thread::spawn(move || {
         let mut last = super::vd::get_current_desktop_guid();
         loop {
